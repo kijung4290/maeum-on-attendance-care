@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="어르신 프로그램 출석 흐름을 살피는 AI 돌봄 대시보드">
+  <title>마음온 | 출석 돌봄 대시보드</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Manrope:wght@500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="마음온 홈">
+        <span class="brand-mark"><span>♥</span></span>
+        <span><b>마음온</b><small>돌봄의 신호를 잇다</small></span>
+      </a>
+      <nav aria-label="주 메뉴">
+        <p class="nav-label">메뉴</p>
+        <a class="nav-item active" data-view="dashboard" href="#dashboard"><span class="nav-icon">⌂</span>출석 현황</a>
+        <a class="nav-item" data-view="members" href="#members"><span class="nav-icon">♙</span>참여자 관리</a>
+        <a class="nav-item" data-view="reports" href="#reports"><span class="nav-icon">▤</span>돌봄 리포트</a>
+        <p class="nav-label spaced">시스템</p>
+        <button class="nav-item nav-button" id="open-guide"><span class="nav-icon">?</span>판정 기준 안내</button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="note-icon">✦</span>
+        <div><b>작은 변화도 놓치지 않게</b><p>AI는 담당자의 판단을 돕는 보조 도구입니다.</p></div>
+      </div>
+      <div class="profile">
+        <span class="avatar">김</span><div><b>김다정 사회복지사</b><small>늘봄복지관</small></div><span>•••</span>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <button class="menu-button" aria-label="메뉴 열기">☰</button>
+        <div class="program-switcher"><span>활기찬 실버 교실</span><small>2026년 하반기 · 화/금</small></div>
+        <div class="top-actions"><button class="icon-button" aria-label="알림">♢<span class="notification-dot"></span></button><span class="today" id="today"></span></div>
+      </header>
+
+      <div class="content" id="app-content">
+        <div class="view-page" id="dashboard">
+        <section class="page-heading">
+          <div><p class="eyebrow">ATTENDANCE CARE</p><h1>오늘도 안녕하신가요?</h1><p>출석의 작은 변화에서 먼저 살펴봐야 할 신호를 찾았어요.</p></div>
+          <button class="primary-button" id="analyze-all"><span>✦</span> AI로 전체 다시 분석</button>
+        </section>
+
+        <div class="mode-banner" id="mode-banner" role="status">
+          <span class="pulse-dot"></span><b id="mode-title">분석 모드 확인 중</b><span id="mode-copy">잠시만 기다려 주세요.</span>
+        </div>
+
+        <section class="summary-grid" aria-label="출석 요약">
+          <article class="summary-card coral"><div class="summary-icon">!</div><div><span>집중 확인 필요</span><strong id="sum-high">-</strong><small>명</small></div><em id="high-delta">우선 연락 권장</em></article>
+          <article class="summary-card yellow"><div class="summary-icon">◷</div><div><span>관심 관찰</span><strong id="sum-watch">-</strong><small>명</small></div><em>출석 흐름 확인</em></article>
+          <article class="summary-card green"><div class="summary-icon">✓</div><div><span>안정 참여</span><strong id="sum-stable">-</strong><small>명</small></div><em>꾸준한 참여</em></article>
+          <article class="summary-card blue"><div class="summary-icon">↗</div><div><span>전체 출석률</span><strong id="sum-rate">-</strong><small>%</small></div><em id="sum-total">총 -명 기준</em></article>
+        </section>
+
+        <section class="insight-card">
+          <div class="insight-illustration"><span class="heart-one">♥</span><span class="heart-two">♥</span><div class="face">◡</div></div>
+          <div class="insight-copy"><span class="ai-label">✦ AI 돌봄 브리핑</span><h2 id="brief-title">출석 데이터를 살펴보고 있어요</h2><p id="brief-copy">최근 출석 흐름을 바탕으로 담당자가 먼저 살필 대상을 알려드립니다.</p></div>
+          <button class="text-button" id="show-priority">우선 확인 대상 보기 <span>→</span></button>
+        </section>
+        </div>
+
+        <section class="list-section view-page" id="members" hidden>
+          <div class="section-head">
+            <div><p class="eyebrow">PARTICIPANT CARE</p><h2>참여자 관리</h2><p>최근 12회 출석 흐름과 AI가 찾은 신호입니다.</p></div>
+            <div class="controls">
+              <label class="search"><span>⌕</span><input id="search" type="search" placeholder="이름 또는 번호 검색" autocomplete="off"></label>
+              <button class="filter-button active" data-filter="all">전체</button>
+              <button class="filter-button" data-filter="high">집중</button>
+              <button class="filter-button" data-filter="watch">관찰</button>
+              <button class="filter-button" data-filter="stable">안정</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>참여자</th><th>AI 돌봄 신호</th><th>최근 출석 흐름</th><th>출석률</th><th>주요 근거</th><th></th></tr></thead>
+              <tbody id="member-list"><tr><td colspan="6" class="loading-row"><span class="loader"></span> 출석 데이터를 불러오는 중...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="empty-state" id="empty-state" hidden><span>⌕</span><h3>조건에 맞는 참여자가 없어요</h3><p>검색어나 필터를 바꿔보세요.</p></div>
+        </section>
+
+        <section class="report-page view-page" id="reports" hidden>
+          <div class="report-heading"><div><p class="eyebrow">CARE REPORT</p><h1>돌봄 리포트</h1><p>출석 신호를 한눈에 보고 이번 주의 확인 순서를 정해보세요.</p></div><button class="report-print" id="print-report">리포트 인쇄</button></div>
+          <div class="report-grid">
+            <article class="report-card distribution-card"><span class="card-kicker">위험군 분포</span><h2>전체 참여 현황</h2><div id="risk-chart" class="risk-chart"></div><div id="risk-legend" class="risk-legend"></div></article>
+            <article class="report-card"><span class="card-kicker">이번 주 핵심</span><h2>출석 인사이트</h2><div class="big-stat"><strong id="report-rate">-</strong><span>%<small>전체 평균 출석률</small></span></div><div class="report-metrics"><div><b id="report-absence">-</b><span>최근 결석 인원</span></div><div><b id="report-streak">-</b><span>연속 결석 인원</span></div></div></article>
+          </div>
+          <article class="report-card priority-report"><div class="report-card-head"><div><span class="card-kicker">FOLLOW-UP QUEUE</span><h2>우선 연락 권장 목록</h2></div><small>위험도와 확신도가 높은 순</small></div><div id="priority-list" class="priority-list"></div></article>
+        </section>
+
+        <footer><span>마음온은 담당자의 돌봄 판단을 보조하며, 의료적 진단이나 자동 조치를 하지 않습니다.</span><span>데이터 기준일 <b id="reference-date">-</b></span></footer>
+      </div>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+  <aside class="detail-drawer" id="detail-drawer" aria-hidden="true" aria-label="참여자 상세 정보">
+    <button class="drawer-close" id="drawer-close" aria-label="닫기">×</button>
+    <div id="drawer-content"></div>
+  </aside>
+
+  <dialog id="guide-dialog">
+    <button class="dialog-close" aria-label="닫기">×</button>
+    <span class="dialog-icon">✦</span><h2>AI 판정은 이렇게 사용해요</h2>
+    <p>JEV는 출석률 하나만 보지 않고 최근의 변화, 연속 무단결석, 반복 지각을 함께 살펴 세 단계 중 하나를 선택합니다.</p>
+    <div class="guide-row high"><b>집중 확인</b><span>최근 연속 결석 등 뚜렷한 변화가 있어 담당자의 빠른 확인이 필요한 경우</span></div>
+    <div class="guide-row watch"><b>관심 관찰</b><span>지각이나 간헐적 결석이 늘어 출석 흐름을 지켜볼 필요가 있는 경우</span></div>
+    <div class="guide-row stable"><b>안정</b><span>최근까지 특별한 이탈 징후 없이 꾸준하게 참여 중인 경우</span></div>
+    <small>※ 사전 연락한 인정결석은 위험도를 높이지 않습니다. 최종 판단과 연락 여부는 반드시 담당자가 결정하세요.</small>
+  </dialog>
+  <div class="toast" id="toast" role="status"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
