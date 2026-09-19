@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import ExcelJS from "exceljs";
 import { calculateFeatures, localRiskDecision, buildReasons, normalizeJevAnswer, RISK_LABELS } from "./risk-engine.js";
 import { STATUS_TO_KO, normalizeStatus, formatExcelDate, validateMember } from "./spreadsheet.js";
+import { loadXlsx } from "./xlsx-loader.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 loadEnv(join(root, ".env"));
@@ -103,8 +104,13 @@ async function createTemplate() {
 }
 
 async function parseWorkbook(buffer) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  let workbook;
+  try {
+    workbook = await loadXlsx(buffer);
+  } catch (error) {
+    console.warn("XLSX parsing failed:", error.message);
+    throw Object.assign(new Error("XLSX 파일 구조를 읽을 수 없습니다. 파일을 Microsoft Excel 또는 LibreOffice에서 XLSX 형식으로 다시 저장해 주세요."), { status: 400 });
+  }
   const sheet = workbook.getWorksheet("출석입력");
   if (!sheet) throw Object.assign(new Error("'출석입력' 시트를 찾을 수 없습니다. 제공된 양식을 사용해 주세요."), { status: 400 });
   const expectedHeaders = ["참여자번호", "이름", "나이", "성별", "연락처", "보호자/관계", "등록일", "담당자메모", ...db.meta.sessionDates];
