@@ -67,6 +67,14 @@
         </div>
 
         <section class="list-section view-page" id="members" hidden>
+          <div class="import-card" id="import-card" hidden>
+            <div class="import-icon">X</div>
+            <div class="import-copy"><b>엑셀로 참여자 데이터 가져오기</b><p>양식을 내려받아 작성한 뒤 XLSX 파일을 업로드하세요. 업로드된 데이터는 서버를 재시작하면 초기화됩니다.</p></div>
+            <a class="template-button" href="/api/template" download>① 양식 다운로드</a>
+            <label class="upload-button" for="xlsx-upload">② 작성 파일 업로드</label>
+            <input id="xlsx-upload" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+          </div>
+          <div class="upload-result" id="upload-result" hidden></div>
           <div class="section-head">
             <div><p class="eyebrow">PARTICIPANT CARE</p><h2>참여자 관리</h2><p>최근 12회 출석 흐름과 AI가 찾은 신호입니다.</p></div>
             <div class="controls">

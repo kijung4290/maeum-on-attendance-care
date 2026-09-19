@@ -3,12 +3,15 @@ import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import ExcelJS from "exceljs";
 import { calculateFeatures, localRiskDecision, buildReasons, normalizeJevAnswer, RISK_LABELS } from "./risk-engine.js";
+import { STATUS_TO_KO, normalizeStatus, formatExcelDate, validateMember } from "./spreadsheet.js";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 loadEnv(join(root, ".env"));
 const port = Number(process.env.PORT || 4173);
-const db = JSON.parse(await readFile(join(root, "data", "dummy-data.json"), "utf8"));
+const seedDb = JSON.parse(await readFile(join(root, "data", "dummy-data.json"), "utf8"));
+let db = structuredClone(seedDb);
 const cache = new Map();
 
 function loadEnv(path) {
@@ -28,6 +31,109 @@ function publicMember(member) {
 function sendJson(res, status, data) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   res.end(JSON.stringify(data));
+}
+
+function dashboardPayload() {
+  const members = db.members.map(publicMember);
+  const summary = {
+    total: members.length,
+    high: members.filter((m) => m.risk.choice === "high").length,
+    watch: members.filter((m) => m.risk.choice === "watch").length,
+    stable: members.filter((m) => m.risk.choice === "stable").length,
+    avgAttendance: members.length ? Math.round(members.reduce((sum, m) => sum + m.features.attendanceRate, 0) / members.length) : 0
+  };
+  return { meta: db.meta, mode: process.env.TYPESAFE_API_KEY ? "jev" : "demo", summary, members };
+}
+
+function readBody(req, maxBytes = 10 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(Object.assign(new Error("파일은 10MB 이하만 업로드할 수 있습니다."), { status: 413 }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+async function createTemplate() {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "마음온 출석 돌봄";
+  const sheet = workbook.addWorksheet("출석입력", { views: [{ state: "frozen", ySplit: 1, xSplit: 2 }] });
+  sheet.columns = [
+    { header: "참여자번호", key: "id", width: 15 }, { header: "이름", key: "name", width: 13 },
+    { header: "나이", key: "age", width: 9 }, { header: "성별", key: "gender", width: 9 },
+    { header: "연락처", key: "phone", width: 18 }, { header: "보호자/관계", key: "guardian", width: 18 },
+    { header: "등록일", key: "joinedAt", width: 14 }, { header: "담당자메모", key: "memo", width: 35 },
+    ...db.meta.sessionDates.map((date, index) => ({ header: date, key: `attendance_${index}`, width: 14 }))
+  ];
+  const header = sheet.getRow(1);
+  header.height = 28;
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4E7968" } };
+  header.alignment = { vertical: "middle", horizontal: "center" };
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 101, column: sheet.columnCount } };
+  for (let row = 2; row <= 101; row += 1) {
+    sheet.getCell(row, 7).numFmt = "yyyy-mm-dd";
+    for (let column = 9; column <= sheet.columnCount; column += 1) {
+      sheet.getCell(row, column).dataValidation = { type: "list", allowBlank: false, formulae: ['"출석,지각,결석,인정결석"'], showErrorMessage: true, errorTitle: "출석 상태 확인", error: "출석, 지각, 결석, 인정결석 중 하나를 선택하세요." };
+      sheet.getCell(row, column).alignment = { horizontal: "center" };
+    }
+  }
+  const guide = workbook.addWorksheet("작성안내");
+  guide.columns = [{ width: 24 }, { width: 82 }];
+  [
+    ["마음온 출석 데이터 작성 안내", "양식의 열 제목과 시트 이름은 변경하지 마세요."],
+    ["필수 항목", "참여자번호, 이름, 나이, 등록일, 모든 회차의 출석 상태"],
+    ["출석 상태", "출석 / 지각 / 결석 / 인정결석 중 하나를 선택하세요."],
+    ["개인정보", "실제 자료를 사용할 경우 기관의 개인정보 처리 기준과 정보주체 동의를 확인하세요."],
+    ["AI 전송 범위", "JEV 분석에는 이름과 연락처를 제외하고 참여자번호, 출석 요약, 담당자 메모만 전송됩니다."],
+    ["업로드 제한", "최대 500명, XLSX 파일 10MB 이하"]
+  ].forEach((values) => guide.addRow(values));
+  guide.getRow(1).font = { bold: true, size: 15, color: { argb: "FF355F50" } };
+  guide.eachRow((row) => { row.alignment = { vertical: "top", wrapText: true }; row.height = 35; });
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+async function parseWorkbook(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.getWorksheet("출석입력");
+  if (!sheet) throw Object.assign(new Error("'출석입력' 시트를 찾을 수 없습니다. 제공된 양식을 사용해 주세요."), { status: 400 });
+  const expectedHeaders = ["참여자번호", "이름", "나이", "성별", "연락처", "보호자/관계", "등록일", "담당자메모", ...db.meta.sessionDates];
+  const headers = sheet.getRow(1).values.slice(1).map((value) => String(value ?? "").trim());
+  if (expectedHeaders.some((header, index) => headers[index] !== header)) throw Object.assign(new Error("양식의 열 제목 또는 출석 날짜가 변경되었습니다. 새 양식을 내려받아 작성해 주세요."), { status: 400 });
+  const members = [];
+  const errors = [];
+  const ids = new Set();
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    const values = row.values.slice(1);
+    if (!values.some((value) => String(value ?? "").trim())) continue;
+    const member = {
+      id: String(row.getCell(1).text || "").trim(), name: String(row.getCell(2).text || "").trim(),
+      age: Number(row.getCell(3).value), gender: String(row.getCell(4).text || "").trim(),
+      phone: String(row.getCell(5).text || "").trim(), guardian: String(row.getCell(6).text || "").trim(),
+      joinedAt: formatExcelDate(row.getCell(7).value), memo: String(row.getCell(8).text || "").trim(),
+      attendance: db.meta.sessionDates.map((_, index) => normalizeStatus(row.getCell(9 + index).text))
+    };
+    errors.push(...validateMember(member, rowNumber, db.meta.sessionDates.length));
+    if (ids.has(member.id)) errors.push(`${rowNumber}행: 참여자번호 ${member.id}가 중복되었습니다.`);
+    ids.add(member.id);
+    members.push(member);
+    if (members.length > 500) errors.push("한 번에 최대 500명까지 업로드할 수 있습니다.");
+    if (errors.length >= 20) break;
+  }
+  if (!members.length) errors.push("입력된 참여자 데이터가 없습니다.");
+  if (errors.length) throw Object.assign(new Error(errors.slice(0, 20).join("\n")), { status: 400 });
+  return members;
 }
 
 async function callJev(member) {
@@ -81,15 +187,24 @@ async function callJev(member) {
 
 async function api(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/dashboard") {
-    const members = db.members.map(publicMember);
-    const summary = {
-      total: members.length,
-      high: members.filter((m) => m.risk.choice === "high").length,
-      watch: members.filter((m) => m.risk.choice === "watch").length,
-      stable: members.filter((m) => m.risk.choice === "stable").length,
-      avgAttendance: Math.round(members.reduce((sum, m) => sum + m.features.attendanceRate, 0) / members.length)
-    };
-    return sendJson(res, 200, { meta: db.meta, mode: process.env.TYPESAFE_API_KEY ? "jev" : "demo", summary, members });
+    return sendJson(res, 200, dashboardPayload());
+  }
+  if (req.method === "GET" && url.pathname === "/api/template") {
+    const file = await createTemplate();
+    res.writeHead(200, { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": "attachment; filename*=UTF-8''maeum-on-attendance-template.xlsx", "Content-Length": file.length });
+    res.end(file);
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/upload") {
+    try {
+      if (!String(req.headers["content-type"] || "").includes("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) return sendJson(res, 415, { error: "XLSX 파일만 업로드할 수 있습니다." });
+      const members = await parseWorkbook(await readBody(req));
+      db = { ...db, members };
+      cache.clear();
+      return sendJson(res, 200, { ...dashboardPayload(), uploaded: members.length });
+    } catch (error) {
+      return sendJson(res, error.status || 400, { error: error.message || "엑셀 파일을 읽지 못했습니다." });
+    }
   }
   const match = url.pathname.match(/^\/api\/analyze\/([^/]+)$/);
   if (req.method === "POST" && match) {
@@ -105,12 +220,18 @@ async function api(req, res, url) {
   }
   if (req.method === "POST" && url.pathname === "/api/analyze-all") {
     try {
-      const results = [];
-      for (const member of db.members) {
-        const decision = await callJev(member);
-        cache.set(member.id, decision);
-        results.push(publicMember(member));
+      const results = new Array(db.members.length);
+      let cursor = 0;
+      async function worker() {
+        while (cursor < db.members.length) {
+          const index = cursor++;
+          const member = db.members[index];
+          const decision = await callJev(member);
+          cache.set(member.id, decision);
+          results[index] = publicMember(member);
+        }
       }
+      await Promise.all(Array.from({ length: Math.min(5, db.members.length) }, worker));
       return sendJson(res, 200, { members: results, mode: process.env.TYPESAFE_API_KEY ? "jev" : "demo" });
     } catch (error) {
       return sendJson(res, 502, { error: error.name === "AbortError" ? "Jev API 응답 시간이 초과되었습니다." : error.message });

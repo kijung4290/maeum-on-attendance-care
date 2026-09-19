@@ -10,6 +10,8 @@ async function loadDashboard() {
     if (!response.ok) throw new Error("데이터를 불러오지 못했습니다.");
     state.data = await response.json();
     state.data.staticMode = isStatic || response.url.includes("demo-dashboard.json");
+    $("#import-card").hidden = state.data.staticMode;
+    $("#analyze-all").hidden = state.data.staticMode;
     render();
   } catch (error) {
     $("#member-list").innerHTML = `<tr><td colspan="6" class="loading-row">${escapeHtml(error.message)}</td></tr>`;
@@ -108,12 +110,12 @@ function openDrawer(id) {
     <section class="detail-block"><h3>기본 연락 정보</h3><div class="info-grid"><div class="info-item"><small>본인 연락처</small><b>${m.phone}</b></div><div class="info-item"><small>보호자 / 관계</small><b>${escapeHtml(m.guardian)}</b></div><div class="info-item"><small>출석률</small><b>${m.features.attendanceRate}%</b></div><div class="info-item"><small>최근 연속 결석</small><b>${m.features.consecutiveAbsences}회</b></div></div></section>
     <section class="detail-block"><h3>담당자 메모</h3><div class="memo">${escapeHtml(m.memo)}</div></section>
     <section class="detail-block"><h3>최근 12회 출석 기록</h3><div class="history">${m.features.records.map((r) => `<div class="history-item"><i class="${r.status}"></i><small>${r.date.slice(5).replace("-",".")}<br>${statusName[r.status]}</small></div>`).join("")}</div></section>
-    <button class="drawer-action" data-analyze="${m.id}">✦ 이 참여자 다시 분석</button>
+    ${state.data.staticMode ? "" : `<button class="drawer-action" data-analyze="${m.id}">✦ 이 참여자 다시 분석</button>`}
     <p class="source-line">${m.risk.source === "jev" ? "TypeSafe AI JEV 분석 결과" : "로컬 데모 규칙 분석 결과"} · 최종 판단은 담당자에게 있습니다.</p>`;
   $("#detail-drawer").classList.add("open");
   $("#drawer-backdrop").classList.add("open");
   $("#detail-drawer").setAttribute("aria-hidden", "false");
-  $("[data-analyze]").addEventListener("click", (event) => analyzeOne(event.currentTarget.dataset.analyze, event.currentTarget));
+  $("[data-analyze]")?.addEventListener("click", (event) => analyzeOne(event.currentTarget.dataset.analyze, event.currentTarget));
 }
 
 function closeDrawer() {
@@ -170,6 +172,38 @@ function showToast(message) {
   clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("show"), 2800);
 }
 
+async function uploadWorkbook(file) {
+  const resultBox = $("#upload-result");
+  if (!file || !file.name.toLowerCase().endsWith(".xlsx")) {
+    resultBox.hidden = false;
+    resultBox.className = "upload-result error";
+    resultBox.textContent = "XLSX 파일을 선택해 주세요.";
+    return;
+  }
+  const label = document.querySelector('label[for="xlsx-upload"]');
+  const original = label.textContent;
+  label.textContent = "업로드 확인 중...";
+  try {
+    const response = await fetch("/api/upload", { method: "POST", headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }, body: await file.arrayBuffer() });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "업로드하지 못했습니다.");
+    state.data = { ...result, staticMode: false };
+    render();
+    resultBox.hidden = false;
+    resultBox.className = "upload-result success";
+    resultBox.textContent = `${result.uploaded}명의 출석 데이터를 불러왔습니다. 상단의 ‘AI로 전체 다시 분석’을 누르면 JEV 분석을 시작합니다.`;
+    showToast(`${result.uploaded}명 업로드 완료`);
+  } catch (error) {
+    resultBox.hidden = false;
+    resultBox.className = "upload-result error";
+    resultBox.textContent = error.message;
+    showToast("엑셀 내용을 확인해 주세요.");
+  } finally {
+    label.textContent = original;
+    $("#xlsx-upload").value = "";
+  }
+}
+
 function formatDate(value, long = false) { const date = new Date(`${value}T00:00:00`); return long ? `${date.getFullYear()}. ${date.getMonth()+1}. ${date.getDate()}.` : `${date.getMonth()+1}/${date.getDate()}`; }
 function toPercent(value) { return `${Math.round(Number(value || 0) * 100)}%`; }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char])); }
@@ -185,6 +219,7 @@ $(".dialog-close").addEventListener("click", () => $("#guide-dialog").close());
 $(".menu-button").addEventListener("click", () => $(".sidebar").classList.toggle("open"));
 document.querySelectorAll("[data-view]").forEach((link) => link.addEventListener("click", (event) => { event.preventDefault(); navigate(link.dataset.view); }));
 $("#print-report").addEventListener("click", () => window.print());
+$("#xlsx-upload").addEventListener("change", (event) => uploadWorkbook(event.target.files[0]));
 document.addEventListener("keydown", (event) => { if(event.key === "Escape") closeDrawer(); });
 navigate(location.hash.slice(1) || "dashboard", false);
 loadDashboard();
