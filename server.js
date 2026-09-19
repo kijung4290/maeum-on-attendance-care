@@ -79,8 +79,8 @@ async function createTemplate() {
   header.font = { bold: true, color: { argb: "FFFFFFFF" } };
   header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4E7968" } };
   header.alignment = { vertical: "middle", horizontal: "center" };
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 101, column: sheet.columnCount } };
-  for (let row = 2; row <= 101; row += 1) {
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1001, column: sheet.columnCount } };
+  for (let row = 2; row <= 1001; row += 1) {
     sheet.getCell(row, 7).numFmt = "yyyy-mm-dd";
     for (let column = 9; column <= sheet.columnCount; column += 1) {
       sheet.getCell(row, column).dataValidation = { type: "list", allowBlank: false, formulae: ['"출석,지각,결석,인정결석"'], showErrorMessage: true, errorTitle: "출석 상태 확인", error: "출석, 지각, 결석, 인정결석 중 하나를 선택하세요." };
@@ -95,7 +95,7 @@ async function createTemplate() {
     ["출석 상태", "출석 / 지각 / 결석 / 인정결석 중 하나를 선택하세요."],
     ["개인정보", "실제 자료를 사용할 경우 기관의 개인정보 처리 기준과 정보주체 동의를 확인하세요."],
     ["AI 전송 범위", "JEV 분석에는 이름과 연락처를 제외하고 참여자번호, 출석 요약, 담당자 메모만 전송됩니다."],
-    ["업로드 제한", "최대 500명, XLSX 파일 10MB 이하"]
+    ["업로드 제한", "최대 1,000명, XLSX 파일 10MB 이하"]
   ].forEach((values) => guide.addRow(values));
   guide.getRow(1).font = { bold: true, size: 15, color: { argb: "FF355F50" } };
   guide.eachRow((row) => { row.alignment = { vertical: "top", wrapText: true }; row.height = 35; });
@@ -128,7 +128,7 @@ async function parseWorkbook(buffer) {
     if (ids.has(member.id)) errors.push(`${rowNumber}행: 참여자번호 ${member.id}가 중복되었습니다.`);
     ids.add(member.id);
     members.push(member);
-    if (members.length > 500) errors.push("한 번에 최대 500명까지 업로드할 수 있습니다.");
+    if (members.length > 1000) errors.push("한 번에 최대 1,000명까지 업로드할 수 있습니다.");
     if (errors.length >= 20) break;
   }
   if (!members.length) errors.push("입력된 참여자 데이터가 없습니다.");
