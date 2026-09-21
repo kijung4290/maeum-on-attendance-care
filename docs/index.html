@@ -45,7 +45,7 @@
         <div class="view-page" id="dashboard">
         <section class="page-heading">
           <div><p class="eyebrow">ATTENDANCE CARE</p><h1>오늘도 안녕하신가요?</h1><p>출석의 작은 변화에서 먼저 살펴봐야 할 신호를 찾았어요.</p></div>
-          <button class="primary-button" id="analyze-all" hidden><span>✦</span> AI로 전체 다시 분석</button>
+          <button class="primary-button" id="analyze-all"><span>✦</span> AI로 전체 다시 분석</button>
         </section>
 
         <div class="mode-banner" id="mode-banner" role="status">
@@ -67,10 +67,10 @@
         </div>
 
         <section class="list-section view-page" id="members" hidden>
-          <div class="import-card" id="import-card" hidden>
+          <div class="import-card" id="import-card">
             <div class="import-icon">X</div>
-            <div class="import-copy"><b>엑셀로 참여자 데이터 가져오기</b><p>양식을 내려받아 작성한 뒤 XLSX 파일을 업로드하세요. 업로드된 데이터는 서버를 재시작하면 초기화됩니다.</p></div>
-            <a class="template-button" href="/api/template" download>① 양식 다운로드</a>
+            <div class="import-copy"><b>엑셀로 참여자 데이터 가져오기</b><p id="import-desc">양식을 내려받아 작성한 뒤 XLSX 파일을 업로드하세요. 업로드된 데이터는 안전하게 브라우저 내에서 즉시 분석됩니다.</p></div>
+            <a class="template-button" id="template-download-link" href="./maeum-on-attendance-template.xlsx" download="maeum-on-attendance-template.xlsx">① 양식 다운로드</a>
             <label class="upload-button" for="xlsx-upload">② 작성 파일 업로드</label>
             <input id="xlsx-upload" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
           </div>
@@ -124,6 +124,16 @@
     <small>※ 사전 연락한 인정결석은 위험도를 높이지 않습니다. 최종 판단과 연락 여부는 반드시 담당자가 결정하세요.</small>
   </dialog>
   <div class="toast" id="toast" role="status"></div>
+  <script src="./vendor/jszip.min.js"></script>
+  <script src="./vendor/exceljs.min.js"></script>
+  <script>
+    if (!window.JSZip) {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"><\/script>');
+    }
+    if (!window.ExcelJS) {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"><\/script>');
+    }
+  </script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

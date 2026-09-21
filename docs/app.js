@@ -1,17 +1,44 @@
+import { calculateFeatures, localRiskDecision, buildReasons, RISK_LABELS } from "./risk-engine.js";
+import { parseWorkbookInBrowser } from "./spreadsheet.js";
+
 const state = { data: null, filter: "all", query: "" };
 const $ = (selector) => document.querySelector(selector);
 const statusName = { present: "출석", absent: "결석", late: "지각", excused: "인정결석" };
 
 async function loadDashboard() {
   try {
-    const isStatic = location.hostname.endsWith("github.io");
-    let response = await fetch(isStatic ? "./demo-dashboard.json" : "/api/dashboard");
-    if (!response.ok && !isStatic) response = await fetch("./demo-dashboard.json");
-    if (!response.ok) throw new Error("데이터를 불러오지 못했습니다.");
+    const isStatic = location.hostname.endsWith("github.io") || location.protocol === "file:";
+    let response;
+    if (isStatic) {
+      response = await fetch("./demo-dashboard.json");
+    } else {
+      try {
+        response = await fetch("/api/dashboard");
+      } catch {
+        response = null;
+      }
+      if (!response || !response.ok) {
+        response = await fetch("./demo-dashboard.json");
+      }
+    }
+    if (!response || !response.ok) throw new Error("데이터를 불러오지 못했습니다.");
     state.data = await response.json();
     state.data.staticMode = isStatic || response.url.includes("demo-dashboard.json");
-    $("#import-card").hidden = state.data.staticMode;
-    $("#analyze-all").hidden = state.data.staticMode;
+    state.data.isUploaded = false;
+
+    // Both on GitHub Pages (staticMode) and local server, show import-card and analyze-all
+    const importCard = $("#import-card");
+    if (importCard) importCard.hidden = false;
+    const analyzeAllBtn = $("#analyze-all");
+    if (analyzeAllBtn) analyzeAllBtn.hidden = false;
+
+    const importDesc = $("#import-desc");
+    if (importDesc) {
+      importDesc.textContent = state.data.staticMode
+        ? "양식을 내려받아 작성한 뒤 XLSX 파일을 업로드하세요. 데이터는 외부 서버로 전송되지 않고 브라우저에서 안전하게 즉시 분석됩니다."
+        : "양식을 내려받아 작성한 뒤 XLSX 파일을 업로드하세요. 업로드된 데이터는 서버를 재시작하면 초기화됩니다.";
+    }
+
     render();
   } catch (error) {
     $("#member-list").innerHTML = `<tr><td colspan="6" class="loading-row">${escapeHtml(error.message)}</td></tr>`;
@@ -36,12 +63,19 @@ function render() {
 function renderMode(mode) {
   const live = mode === "jev";
   $("#mode-banner").classList.toggle("demo", !live);
-  $("#mode-title").textContent = live ? "TypeSafe AI · JEV 연결됨" : "데모 분석 모드";
-  $("#mode-copy").textContent = live ? "실제 JEV 확률 판정을 사용할 준비가 되었습니다." : "API 키 없이 로컬 규칙으로 안전하게 기능을 시험하고 있습니다.";
+  if (state.data?.isUploaded) {
+    $("#mode-title").textContent = live ? "TypeSafe AI · 업로드 데이터 연결됨" : (state.data.staticMode ? "브라우저 안전 분석 모드" : "업로드 데이터 분석 모드");
+    $("#mode-copy").textContent = state.data.staticMode
+      ? `업로드된 ${state.data.members.length}명의 데이터가 브라우저 내에서 안전하게 분석되었습니다. (개인정보 외부 전송 없음)`
+      : `업로드된 ${state.data.members.length}명의 출석 데이터를 바탕으로 분석 결과를 표시하고 있습니다.`;
+  } else {
+    $("#mode-title").textContent = live ? "TypeSafe AI · JEV 연결됨" : "데모 분석 모드";
+    $("#mode-copy").textContent = live ? "실제 JEV 확률 판정을 사용할 준비가 되었습니다." : "API 키 없이 로컬 규칙으로 안전하게 기능을 시험하고 있습니다.";
+  }
 }
 
 function renderBrief() {
-  const high = state.data.members.filter((m) => m.risk.choice === "high").sort((a,b) => b.risk.confidence-a.risk.confidence);
+  const high = state.data.members.filter((m) => m.risk.choice === "high").sort((a, b) => b.risk.confidence - a.risk.confidence);
   if (high.length) {
     $("#brief-title").textContent = `${high[0].name} 어르신 외 ${Math.max(0, high.length - 1)}명을 먼저 살펴봐 주세요`;
     $("#brief-copy").textContent = `${high[0].risk.reasons[0]}. 기록만으로 단정하지 말고 안부와 상황을 확인해 주세요.`;
@@ -110,8 +144,8 @@ function openDrawer(id) {
     <section class="detail-block"><h3>기본 연락 정보</h3><div class="info-grid"><div class="info-item"><small>본인 연락처</small><b>${m.phone}</b></div><div class="info-item"><small>보호자 / 관계</small><b>${escapeHtml(m.guardian)}</b></div><div class="info-item"><small>출석률</small><b>${m.features.attendanceRate}%</b></div><div class="info-item"><small>최근 연속 결석</small><b>${m.features.consecutiveAbsences}회</b></div></div></section>
     <section class="detail-block"><h3>담당자 메모</h3><div class="memo">${escapeHtml(m.memo)}</div></section>
     <section class="detail-block"><h3>최근 12회 출석 기록</h3><div class="history">${m.features.records.map((r) => `<div class="history-item"><i class="${r.status}"></i><small>${r.date.slice(5).replace("-",".")}<br>${statusName[r.status]}</small></div>`).join("")}</div></section>
-    ${state.data.staticMode ? "" : `<button class="drawer-action" data-analyze="${m.id}">✦ 이 참여자 다시 분석</button>`}
-    <p class="source-line">${m.risk.source === "jev" ? "TypeSafe AI JEV 분석 결과" : "로컬 데모 규칙 분석 결과"} · 최종 판단은 담당자에게 있습니다.</p>`;
+    <button class="drawer-action" data-analyze="${m.id}">✦ 이 참여자 다시 분석</button>
+    <p class="source-line">${m.risk.source === "jev" ? "TypeSafe AI JEV 분석 결과" : (state.data.staticMode ? "브라우저 안전 규칙 분석 결과" : "로컬 데모 규칙 분석 결과")} · 최종 판단은 담당자에게 있습니다.</p>`;
   $("#detail-drawer").classList.add("open");
   $("#drawer-backdrop").classList.add("open");
   $("#detail-drawer").setAttribute("aria-hidden", "false");
@@ -125,51 +159,121 @@ function closeDrawer() {
 }
 
 async function analyzeOne(id, button) {
-  if (state.data.staticMode) {
-    showToast("공개 데모에서는 저장된 분석 결과를 사용합니다. 실제 JEV 분석은 서버 실행 시 이용할 수 있어요.");
-    return;
-  }
   const before = button.textContent;
   button.disabled = true; button.textContent = "분석 중...";
   try {
+    if (state.data.staticMode) {
+      const index = state.data.members.findIndex((m) => m.id === id);
+      if (index === -1) throw new Error("참여자를 찾을 수 없습니다.");
+      const member = state.data.members[index];
+      const features = calculateFeatures(member, state.data.meta?.sessionDates || []);
+      const decision = localRiskDecision(features);
+      state.data.members[index] = {
+        ...member,
+        features,
+        risk: { ...decision, meta: RISK_LABELS[decision.choice], reasons: buildReasons(features) }
+      };
+      recalculateSummary();
+      render();
+      openDrawer(id);
+      showToast("로컬 규칙으로 분석을 완료했습니다.");
+      return;
+    }
+
     const response = await fetch(`/api/analyze/${encodeURIComponent(id)}`, { method: "POST" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "분석하지 못했습니다.");
     const index = state.data.members.findIndex((m) => m.id === id);
     state.data.members[index] = result;
-    recalculateSummary(); render(); openDrawer(id);
+    recalculateSummary();
+    render();
+    openDrawer(id);
     showToast(result.risk.source === "jev" ? "JEV 분석을 완료했습니다." : "데모 분석을 완료했습니다.");
-  } catch (error) { showToast(error.message); }
-  finally { button.disabled = false; button.textContent = before; }
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = before;
+  }
 }
 
 async function analyzeAll() {
-  if (state.data.staticMode) {
-    showToast("100명의 데모 분석 결과를 새로 불러왔습니다.");
-    await loadDashboard();
-    return;
-  }
   const button = $("#analyze-all");
-  button.disabled = true; button.innerHTML = '<span class="loader"></span> 전체 분석 중...';
+  button.disabled = true;
+  button.innerHTML = '<span class="loader"></span> 전체 분석 중...';
   try {
+    if (state.data.staticMode) {
+      const dates = state.data.meta?.sessionDates || [];
+      state.data.members = state.data.members.map((member) => {
+        const features = calculateFeatures(member, dates);
+        const decision = localRiskDecision(features);
+        return {
+          ...member,
+          features,
+          risk: { ...decision, meta: RISK_LABELS[decision.choice], reasons: buildReasons(features) }
+        };
+      });
+      recalculateSummary();
+      render();
+      showToast(state.data.isUploaded ? `${state.data.members.length}명의 업로드 데이터를 재분석했습니다.` : "전체 데이터를 AI 규칙으로 재분석했습니다.");
+      return;
+    }
+
     const response = await fetch("/api/analyze-all", { method: "POST" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "분석하지 못했습니다.");
-    state.data.members = result.members; state.data.mode = result.mode;
-    recalculateSummary(); render();
+    state.data.members = result.members;
+    state.data.mode = result.mode;
+    recalculateSummary();
+    render();
     showToast(result.mode === "jev" ? "전체 JEV 분석이 완료되었습니다." : "전체 데모 분석이 완료되었습니다.");
-  } catch (error) { showToast(error.message); }
-  finally { button.disabled = false; button.innerHTML = "<span>✦</span> AI로 전체 다시 분석"; }
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = "<span>✦</span> AI로 전체 다시 분석";
+  }
 }
 
 function recalculateSummary() {
   const members = state.data.members;
-  state.data.summary = { total: members.length, high: members.filter(m=>m.risk.choice==="high").length, watch: members.filter(m=>m.risk.choice==="watch").length, stable: members.filter(m=>m.risk.choice==="stable").length, avgAttendance: Math.round(members.reduce((s,m)=>s+m.features.attendanceRate,0)/members.length) };
+  state.data.summary = {
+    total: members.length,
+    high: members.filter((m) => m.risk.choice === "high").length,
+    watch: members.filter((m) => m.risk.choice === "watch").length,
+    stable: members.filter((m) => m.risk.choice === "stable").length,
+    avgAttendance: members.length ? Math.round(members.reduce((s, m) => s + m.features.attendanceRate, 0) / members.length) : 0
+  };
 }
 
 function showToast(message) {
-  const toast = $("#toast"); toast.textContent = message; toast.classList.add("show");
-  clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove("show"), 2800);
+  const toast = $("#toast");
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2800);
+}
+
+function showUploadSuccess(count, isBrowser) {
+  const resultBox = $("#upload-result");
+  resultBox.hidden = false;
+  resultBox.className = "upload-result success";
+  const privacyNote = isBrowser
+    ? "브라우저 내에서 안전하게 즉시 분석되었습니다. (개인정보 보호를 위해 외부로 전송되지 않음)"
+    : "서버로 데이터를 불러왔습니다.";
+  resultBox.innerHTML = `
+    <span>✓ <b>${count}명</b>의 출석 데이터를 불러왔습니다. ${privacyNote}</span>
+    <button type="button" class="text-button" id="btn-reset-demo" style="margin-left: 12px; font-size: 13px; text-decoration: underline; cursor: pointer; color: inherit;">기본 가상 데이터로 복원</button>
+  `;
+  $("#btn-reset-demo")?.addEventListener("click", resetToDemo);
+  showToast(`${count}명 출석 데이터 분석 완료`);
+}
+
+async function resetToDemo() {
+  const resultBox = $("#upload-result");
+  resultBox.hidden = true;
+  await loadDashboard();
+  showToast("기본 가상 데이터로 복원했습니다.");
 }
 
 async function uploadWorkbook(file) {
@@ -182,44 +286,124 @@ async function uploadWorkbook(file) {
   }
   const label = document.querySelector('label[for="xlsx-upload"]');
   const original = label.textContent;
-  label.textContent = "업로드 확인 중...";
+  label.textContent = "업로드 및 분석 중...";
   try {
-    const response = await fetch("/api/upload", { method: "POST", headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }, body: await file.arrayBuffer() });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "업로드하지 못했습니다.");
-    state.data = { ...result, staticMode: false };
+    const buffer = await file.arrayBuffer();
+
+    // If running on local server (not in staticMode), try /api/upload first
+    if (!state.data.staticMode) {
+      try {
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+          body: buffer
+        });
+        if (response.ok) {
+          const result = await response.json();
+          state.data = { ...result, staticMode: false, isUploaded: true };
+          render();
+          showUploadSuccess(result.uploaded, false);
+          return;
+        }
+      } catch (err) {
+        console.warn("서버 업로드 실패, 브라우저 로컬 분석으로 전환:", err);
+      }
+    }
+
+    // Client-side parsing (GitHub Pages / staticMode / fallback)
+    const { members: rawMembers, sessionDates } = await parseWorkbookInBrowser(buffer, state.data?.meta?.sessionDates);
+
+    const members = rawMembers.map((m) => {
+      const features = calculateFeatures(m, sessionDates);
+      const decision = localRiskDecision(features);
+      return {
+        ...m,
+        features,
+        risk: {
+          ...decision,
+          meta: RISK_LABELS[decision.choice],
+          reasons: buildReasons(features)
+        }
+      };
+    });
+
+    const summary = {
+      total: members.length,
+      high: members.filter((m) => m.risk.choice === "high").length,
+      watch: members.filter((m) => m.risk.choice === "watch").length,
+      stable: members.filter((m) => m.risk.choice === "stable").length,
+      avgAttendance: members.length ? Math.round(members.reduce((s, m) => s + m.features.attendanceRate, 0) / members.length) : 0
+    };
+
+    const meta = {
+      organization: state.data?.meta?.organization || "늘봄복지관",
+      program: state.data?.meta?.program || "활기찬 실버 교실",
+      referenceDate: sessionDates[sessionDates.length - 1] || state.data?.meta?.referenceDate || "2026-09-18",
+      sessionDates
+    };
+
+    state.data = {
+      ...state.data,
+      meta,
+      summary,
+      members,
+      uploaded: members.length,
+      isUploaded: true
+    };
+
     render();
-    resultBox.hidden = false;
-    resultBox.className = "upload-result success";
-    resultBox.textContent = `${result.uploaded}명의 출석 데이터를 불러왔습니다. 상단의 ‘AI로 전체 다시 분석’을 누르면 JEV 분석을 시작합니다.`;
-    showToast(`${result.uploaded}명 업로드 완료`);
+    showUploadSuccess(members.length, true);
   } catch (error) {
     resultBox.hidden = false;
     resultBox.className = "upload-result error";
     resultBox.textContent = error.message;
-    showToast("엑셀 내용을 확인해 주세요.");
+    showToast("엑셀 파일 내용을 확인해 주세요.");
   } finally {
     label.textContent = original;
     $("#xlsx-upload").value = "";
   }
 }
 
-function formatDate(value, long = false) { const date = new Date(`${value}T00:00:00`); return long ? `${date.getFullYear()}. ${date.getMonth()+1}. ${date.getDate()}.` : `${date.getMonth()+1}/${date.getDate()}`; }
-function toPercent(value) { return `${Math.round(Number(value || 0) * 100)}%`; }
-function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char])); }
+function formatDate(value, long = false) {
+  const date = new Date(`${value}T00:00:00`);
+  return long ? `${date.getFullYear()}. ${date.getMonth() + 1}. ${date.getDate()}.` : `${date.getMonth() + 1}/${date.getDate()}`;
+}
 
-$("#today").textContent = new Intl.DateTimeFormat("ko-KR", { year:"numeric", month:"long", day:"numeric", weekday:"short" }).format(new Date());
+function toPercent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+}
+
+$("#today").textContent = new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(new Date());
 $("#search").addEventListener("input", (event) => { state.query = event.target.value; renderMembers(); });
-document.querySelectorAll(".filter-button").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll(".filter-button").forEach(b=>b.classList.remove("active")); button.classList.add("active"); state.filter=button.dataset.filter; renderMembers(); }));
-$("#drawer-close").addEventListener("click", closeDrawer); $("#drawer-backdrop").addEventListener("click", closeDrawer);
+document.querySelectorAll(".filter-button").forEach((button) => button.addEventListener("click", () => {
+  document.querySelectorAll(".filter-button").forEach((b) => b.classList.remove("active"));
+  button.classList.add("active");
+  state.filter = button.dataset.filter;
+  renderMembers();
+}));
+$("#drawer-close").addEventListener("click", closeDrawer);
+$("#drawer-backdrop").addEventListener("click", closeDrawer);
 $("#analyze-all").addEventListener("click", analyzeAll);
-$("#show-priority").addEventListener("click", () => { state.filter="high"; document.querySelectorAll(".filter-button").forEach(b=>b.classList.toggle("active",b.dataset.filter==="high")); renderMembers(); navigate("members"); });
+$("#show-priority").addEventListener("click", () => {
+  state.filter = "high";
+  document.querySelectorAll(".filter-button").forEach((b) => b.classList.toggle("active", b.dataset.filter === "high"));
+  renderMembers();
+  navigate("members");
+});
 $("#open-guide").addEventListener("click", () => $("#guide-dialog").showModal());
 $(".dialog-close").addEventListener("click", () => $("#guide-dialog").close());
 $(".menu-button").addEventListener("click", () => $(".sidebar").classList.toggle("open"));
-document.querySelectorAll("[data-view]").forEach((link) => link.addEventListener("click", (event) => { event.preventDefault(); navigate(link.dataset.view); }));
+document.querySelectorAll("[data-view]").forEach((link) => link.addEventListener("click", (event) => {
+  event.preventDefault();
+  navigate(link.dataset.view);
+}));
 $("#print-report").addEventListener("click", () => window.print());
 $("#xlsx-upload").addEventListener("change", (event) => uploadWorkbook(event.target.files[0]));
-document.addEventListener("keydown", (event) => { if(event.key === "Escape") closeDrawer(); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeDrawer(); });
+
 navigate(location.hash.slice(1) || "dashboard", false);
 loadDashboard();
